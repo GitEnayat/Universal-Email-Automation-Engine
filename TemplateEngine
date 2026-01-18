@@ -1,0 +1,260 @@
+/* LIBRARY FILE: EmailTemplates.gs
+--------------------------------
+Contains all logic for fetching templates, parsing keys,
+calculating dates/times, and integrating tables.
+FINAL VERSION: Dynamic Dictionary + HTML/Signature Logic
+*/
+// ==========================================
+// MASTER CONFIGURATION
+// ==========================================
+const MASTER_DOC_ID = "1dKAx4H8ILn94JZiu3F3SOI7_aO9UXkRLmtFuF-iYOrY";
+// ==========================================
+// PUBLIC FUNCTIONS (Exposed to your scripts)
+// ==========================================
+/**
+* Main function to fetch and parse a template.
+* @param {string} tabName - The exact name of the tab.
+* @param {string} [specificDocId] - The ID of the Doc to use (optional).
+*/
+function getTemplate(tabName, specificDocId) {
+// Logic: Use the passed ID if provided, otherwise fall back to Master constant
+const finalId = specificDocId || MASTER_DOC_ID;
+const doc = DocumentApp.openById(finalId);
+const tabs = doc.getTabs();
+// 1. Recursive Search for the Tab
+const targetTab = findTabRecursive_(tabs, tabName);
+if (!targetTab) {
+Logger.log(`❌ [Library] Error: Tab '${tabName}' not found in Doc: ${finalId}`);
+return null;
+}
+// 2. Parse Content (Subject, Body, To, CC)
+const docTab = targetTab.asDocumentTab();
+const bodyElement = docTab.getBody();
+const numChildren = bodyElement.getNumChildren();
+let result = { subject: "", body: "", to: "", cc: "" };
+let mode = "none";
+for (let i = 0; i < numChildren; i++) {
+const child = bodyElement.getChild(i);
+const text = child.getText().trim();
+// Detect Tags
+if (text === "[SUBJECT]") { mode = "capturing_subject"; continue; }
+if (text === "[BODY]")    { mode = "capturing_body";    continue; }
+if (text === "[TO]")      { mode = "capturing_to";      continue; }
+if (text === "[CC]")      { mode = "capturing_cc";      continue; }
+// Capture Content
+if (mode === "capturing_subject" && text !== "") { result.subject = text; mode = "none"; }
+else if (mode === "capturing_to" && text !== "") { result.to += text + ","; }
+else if (mode === "capturing_cc" && text !== "") { result.cc += text + ","; }
+else if (mode === "capturing_body") { result.body += convertElementToHtml_(child); }
+}
+// 3. Apply Dictionary (Logic & Math)
+const processedSubject = applyDictionary_(result.subject);
+let processedBody = applyDictionary_(result.body);
+// 4. Process Tables
+processedBody = processTables(processedBody);
+return {
+subject: processedSubject,
+body:    processedBody,
+to:      result.to,
+cc:      result.cc
+};
+}
+/**
+* Cleans up a distro list string from the Doc.
+*/
+function parseDistroKeys(rawString) {
+if (!rawString) return [];
+return rawString.split(",").map(item => {
+return item.trim().replace(/^[\('"]+|[\)'"]+$/g, "");
+}).filter(item => item !== "");
+}
+// ==========================================
+// 2. DYNAMIC DICTIONARY ENGINE (The Brain)
+// ==========================================
+function applyDictionary_(text) {
+if (!text) return "";
+// 1. HEALER: Fix HTML inside brackets (e.g. {{<span...>Date</span>}} -> {{Date}})
+const healedText = text.replace(/\{\{(.*?)\}\}/g, (match, inner) =>
+"{{" + inner.replace(/<[^>]+>/g, "").trim() + "}}"
+);
+// 2. PARSER: Execute Commands
+return healedText.replace(/\{\{(.*?)\}\}/g, function(match, content) {
+const parts = content.split(":").map(p => p.trim());
+const command = parts[0].toUpperCase();
+const param = parts[1] || ""; // The part after the colon
+try {
+switch (command) {
+// --- A. DATES & RANGES (Generic) ---
+case "DATE":
+// Usage: {{DATE:Today}} or {{DATE:WeekStart-1}}
+return formatDate_(parseDateToken_(param));
+case "RANGE":
+// Usage: {{RANGE:MonthStart-1:Today-1}}
+const endParam = parts[2] || "Today";
+return formatDate_(parseDateToken_(param)) + " - " + formatDate_(parseDateToken_(endParam));
+// --- B. TIME ZONES ---
+case "TIME":
+// Usage: {{TIME:BKK}} or {{TIME}}
+if (param.toUpperCase() === "BKK") return getRoundedTime_("Asia/Bangkok", "ICT");
+return getRoundedTime_("Asia/Kuala_Lumpur", "MYT"); // Default to KUL
+// --- C. MONTH NAMES (Format: January 2026) ---
+case "MONTHNAME":
+// Usage: {{MONTHNAME:0}} for current, {{MONTHNAME:-1}} for last
+return getMonthName_(parseInt(param) || 0);
+// --- D. RAMCO CYCLES ---
+case "RAMCO":
+// Usage: {{RAMCO}} or {{RAMCO:PREVIOUS}}
+return getRamcoCycle_(param.toUpperCase() === "PREVIOUS" ? -1 : 0);
+// --- E. GREETING ---
+case "GREETING":
+return getGreeting_();
+default:
+return match; // Return original text if not found
+}
+} catch (e) {
+Logger.log("❌ Dictionary Error: " + content);
+return "ERROR";
+}
+});
+}
+// ==========================================
+// PRIVATE HELPERS (Search & Math)
+// ==========================================
+// --- RECURSIVE SEARCH ---
+function findTabRecursive_(tabsList, targetName) {
+for (const tab of tabsList) {
+if (tab.getTitle() === targetName) return tab;
+const childTabs = tab.getChildTabs();
+if (childTabs.length > 0) {
+const found = findTabRecursive_(childTabs, targetName);
+if (found) return found;
+}
+}
+return null;
+}
+// --- SMART DATE CALCULATOR ---
+function parseDateToken_(token) {
+const now = new Date();
+const lower = token.toLowerCase();
+// Extract Number (e.g., "WeekStart-2" -> -2)
+const getOffset = (k) => {
+const val = lower.replace(k, "").trim();
+return parseInt(val, 10) || 0;
+};
+if (lower.includes("today")) {
+now.setDate(now.getDate() + getOffset("today"));
+}
+else if (lower.includes("monthstart")) {
+now.setDate(1);
+now.setMonth(now.getMonth() + getOffset("monthstart"));
+}
+else if (lower.includes("weekstart")) {
+const day = now.getDay(); // 0 is Sunday
+const weekOffset = getOffset("weekstart") * 7;
+// Go back to Sunday, then add week offsets
+now.setDate(now.getDate() - day + weekOffset);
+}
+return now;
+}
+// --- LOGIC FUNCTIONS ---
+function getRamcoCycle_(monthOffset) {
+const d = new Date();
+let m = d.getDate() >= 16 ? d.getMonth() : d.getMonth() - 1;
+m += monthOffset;
+const s = new Date(d.getFullYear(), m, 16);
+const e = new Date(s.getFullYear(), s.getMonth() + 1, 15);
+return formatDate_(s) + " - " + formatDate_(e);
+}
+function formatDate_(d) {
+return Utilities.formatDate(d, Session.getScriptTimeZone(), "dd-MMM-yyyy");
+}
+function getMonthName_(offset) {
+const d = new Date();
+d.setDate(1);
+d.setMonth(d.getMonth() + offset);
+return Utilities.formatDate(d, Session.getScriptTimeZone(), "MMMM yyyy");
+}
+function getRoundedTime_(tz, suff) {
+const d = new Date();
+d.setMinutes(Math.floor(d.getMinutes() / 10) * 10);
+return Utilities.formatDate(d, tz, "h:mm a") + " " + suff;
+}
+function getGreeting_() {
+const hour = parseInt(Utilities.formatDate(new Date(), "Asia/Kuala_Lumpur", "HH"));
+if (hour < 12) return "Good Morning";
+if (hour < 18) return "Good Afternoon";
+return "Good Evening";
+}
+// ==========================================
+// 3. HTML CONVERTER (Styles & Horizontal Lines)
+// ==========================================
+function convertElementToHtml_(element) {
+// CASE 1: Paragraphs (Text blocks)
+if (element.getType() === DocumentApp.ElementType.PARAGRAPH) {
+let text = element.getText();
+if (text === "") return "<br>"; // Handle empty lines
+// Force zero margin to fix spacing issues in signatures
+return "<p style='margin: 0; padding: 0;'>" + getFormattedText_(element) + "</p>";
+}
+// CASE 2: List Items (Bullet Points)
+else if (element.getType() === DocumentApp.ElementType.LIST_ITEM) {
+return "<li>" + getFormattedText_(element) + "</li>";
+}
+// CASE 3: Horizontal Rule (The Line)
+else if (element.getType() === DocumentApp.ElementType.HORIZONTAL_RULE) {
+return "<hr style='border: 0; border-top: 1px solid #cccccc; margin: 15px 0;'>";
+}
+return "";
+}
+/**
+* SHARED HELPER: Extracts text while preserving Links, Bold, Colors, and Highlights.
+*/
+function getFormattedText_(element) {
+const textObj = element.editAsText();
+const str = textObj.getText();
+let html = "";
+let lastConfig = { url: null, fg: null, bg: null, bold: false };
+const getOpenTags = (c) => {
+let tags = "";
+if (c.url) tags += "<a href='" + c.url + "'>";
+let style = "";
+if (c.fg && c.fg !== "#000000") style += "color:" + c.fg + ";";
+if (c.bg && c.bg !== "#ffffff") style += "background-color:" + c.bg + ";";
+if (style) tags += "<span style='" + style + "'>";
+if (c.bold) tags += "<b>";
+return tags;
+};
+const getCloseTags = (c) => {
+let tags = "";
+if (c.bold) tags += "</b>";
+if ((c.fg && c.fg !== "#000000") || (c.bg && c.bg !== "#ffffff")) tags += "</span>";
+if (c.url) tags += "</a>";
+return tags;
+};
+for (let i = 0; i < str.length; i++) {
+const currentConfig = {
+url: textObj.getLinkUrl(i),
+fg:  textObj.getForegroundColor(i),
+bg:  textObj.getBackgroundColor(i),
+bold: textObj.isBold(i)
+};
+if (i === 0) {
+html += getOpenTags(currentConfig);
+} else {
+if (JSON.stringify(currentConfig) !== JSON.stringify(lastConfig)) {
+html += getCloseTags(lastConfig) + getOpenTags(currentConfig);
+}
+}
+html += str.charAt(i);
+lastConfig = currentConfig;
+}
+if (str.length > 0) {
+html += getCloseTags(lastConfig);
+}
+return html;
+}
+
+
+
+
+

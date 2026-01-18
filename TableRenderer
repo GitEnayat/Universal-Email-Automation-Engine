@@ -1,0 +1,158 @@
+/* LIBRARY FILE: TableHelper.gs
+--------------------------------
+FINAL VERSION (Formatted Text + Empty Row Fix)
+- Fixed Regex to handle Bold/Links inside range definition.
+- Nuclear cleaning of invisible spaces.
+- Auto-fixing missing quotes.
+- [NEW] Automatically trims empty rows from the bottom of the range.
+*/
+/* REPLACE the processTables function with this version */
+function processTables(bodyHtml) {
+// NEW REGEX: "Greedy" capture.
+// Captures everything between "Sheet:" and the comma ","
+// This allows it to accept Smart Chips, HTML links, or raw text.
+const regex = /\[Table\]\s*Sheet:\s*(.*?),\s*range:\s*(.*?)(?=<\/p>)/gi;
+return bodyHtml.replace(regex, function(match, urlPart, rawRange) {
+try {
+// 1. EXTRACT ID
+// The "urlPart" might be a Smart Chip HTML code now (<a href=...>)
+// But our helper function searches for the 25+ char ID anywhere in the string.
+const ssId = getIdFromUrl_(urlPart);
+if (!ssId) {
+Logger.log("❌ Table Error: Could not find Sheet ID in: " + urlPart);
+return "<p style='color:red;'>[Table Error: Invalid Sheet Link or Chip]</p>";
+}
+// 2. STRIP HTML TAGS (From the range section)
+let cleanRange = rawRange.replace(/<[^>]+>/g, "");
+// 3. NUCLEAR CLEANING (Invisible Spaces)
+cleanRange = cleanRange
+.replace(/[\u2018\u2019]/g, "'") // Fix Smart Quotes
+.replace(/\u00A0/g, " ")         // Fix Non-Breaking Spaces
+.replace(/&nbsp;/g, " ")         // Fix HTML spaces
+.trim();
+// Fix trailing punctuation
+if (/[.,;]$/.test(cleanRange)) {
+cleanRange = cleanRange.slice(0, -1).trim();
+}
+// 4. AUTO-QUOTE
+cleanRange = fixMissingQuotes_(cleanRange);
+Logger.log(`[TableHelper] Fetching: "${cleanRange}" from ID: ${ssId}`);
+return getHtmlTableFromSheet_(ssId, cleanRange);
+} catch (e) {
+Logger.log(`❌ [Table Error] ${e.message}`);
+return `<p style="color:red;">(Table Error: ${e.message})</p>`;
+}
+});
+}
+// ==========================================
+// PRIVATE HELPERS
+// ==========================================
+function getIdFromUrl_(url) {
+const match = url.match(/[-\w]{25,}/);
+return match ? match[0] : null;
+}
+function fixMissingQuotes_(rangeStr) {
+if (rangeStr.startsWith("'")) return rangeStr;
+const lastBang = rangeStr.lastIndexOf("!");
+if (lastBang === -1) return rangeStr;
+const sheetName = rangeStr.substring(0, lastBang);
+const cellRange = rangeStr.substring(lastBang + 1);
+if (sheetName.includes(" ")) {
+return `'${sheetName}'!${cellRange}`;
+}
+return rangeStr;
+}
+function getHtmlTableFromSheet_(ssId, rangeA1) {
+const ss = SpreadsheetApp.openById(ssId);
+const range = ss.getRange(rangeA1);
+// 1. Fetch All Data
+let values = range.getDisplayValues();
+// -------------------------------------------------------------
+// ✂️ TRIM LOGIC: Remove empty rows from the bottom
+// -------------------------------------------------------------
+let lastRowIndex = values.length - 1;
+while (lastRowIndex >= 0) {
+// Check if every cell in this row is empty/whitespace
+const isRowEmpty = values[lastRowIndex].every(cell => cell.trim() === "");
+if (!isRowEmpty) break; // We found data, stop trimming!
+lastRowIndex--;
+}
+// If the whole table is empty, return a message
+if (lastRowIndex < 0) return "<p><i>(Table contains no data)</i></p>";
+// Determine the new height (exclusive for slice)
+const newRowCount = lastRowIndex + 1;
+// Trim the values array
+values = values.slice(0, newRowCount);
+// 2. Fetch & Trim Formatting Arrays (Must match values length)
+// We fetch everything first, then slice it to match the cleaned data
+const backgrounds = range.getBackgrounds().slice(0, newRowCount);
+const fontWeights = range.getFontWeights().slice(0, newRowCount);
+const fontColors = range.getFontColors().slice(0, newRowCount);
+const fontSizes = range.getFontSizes().slice(0, newRowCount);
+const horizontalAligns = range.getHorizontalAlignments().slice(0, newRowCount);
+const verticalAligns = range.getVerticalAlignments().slice(0, newRowCount);
+const fontFamilies = range.getFontFamilies().slice(0, newRowCount);
+// 3. Handle Merged Ranges
+const mergedRanges = range.getMergedRanges();
+const numRows = values.length; // Now using the TRIMMED length
+const numCols = values[0].length;
+let cellMeta = Array.from({ length: numRows }, () =>
+Array.from({ length: numCols }, () => ({ rowSpan: 1, colSpan: 1, skip: false }))
+);
+const startRowIndex = range.getRow();
+const startColIndex = range.getColumn();
+mergedRanges.forEach(merge => {
+const mergeStartRow = merge.getRow() - startRowIndex;
+const mergeStartCol = merge.getColumn() - startColIndex;
+const mergeNumRows = merge.getNumRows();
+const mergeNumCols = merge.getNumColumns();
+for (let r = 0; r < mergeNumRows; r++) {
+for (let c = 0; c < mergeNumCols; c++) {
+const targetRow = mergeStartRow + r;
+const targetCol = mergeStartCol + c;
+// Bound check: Only apply merge if it falls within our TRIMMED table
+if (targetRow >= 0 && targetRow < numRows && targetCol >= 0 && targetCol < numCols) {
+if (r === 0 && c === 0) {
+cellMeta[targetRow][targetCol].rowSpan = mergeNumRows;
+cellMeta[targetRow][targetCol].colSpan = mergeNumCols;
+} else {
+cellMeta[targetRow][targetCol].skip = true;
+}
+}
+}
+}
+});
+// 4. Build HTML
+let html = '<table style="border-collapse: collapse; border: 1px solid #ccc; font-family: Arial, sans-serif; font-size: 10pt;">';
+for (let i = 0; i < numRows; i++) {
+html += '<tr>';
+for (let j = 0; j < numCols; j++) {
+if (cellMeta[i][j].skip) continue;
+const cellText = values[i][j];
+const bgColor = backgrounds[i][j];
+const weight = fontWeights[i][j];
+const color = fontColors[i][j];
+const fontSize = fontSizes[i][j];
+const hAlign = horizontalAligns[i][j];
+const vAlign = verticalAligns[i][j];
+const fontFamily = fontFamilies[i][j] || 'Arial';
+const rowSpanAttr = cellMeta[i][j].rowSpan > 1 ? ` rowspan="${cellMeta[i][j].rowSpan}"` : "";
+const colSpanAttr = cellMeta[i][j].colSpan > 1 ? ` colspan="${cellMeta[i][j].colSpan}"` : "";
+html += `<td${rowSpanAttr}${colSpanAttr} style="
+border: 1px solid #ccc;
+padding: 5px 8px;
+background-color: ${bgColor};
+color: ${color};
+font-weight: ${weight};
+font-size: ${fontSize}pt;
+font-family: ${fontFamily}, sans-serif;
+text-align: ${hAlign};
+vertical-align: ${vAlign};
+white-space: pre-wrap;
+">${cellText}</td>`;
+}
+html += '</tr>';
+}
+html += '</table>';
+return html;
+}

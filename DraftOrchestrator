@@ -1,0 +1,85 @@
+/* LIBRARY FILE: Core_Runner.gs
+--------------------------------
+The Engine that orchestrates fetching, parsing, and drafting.
+FINAL VERSION: Safe Draft Recycling + Manual Doc Overrides.
+*/
+/**
+* Orchestrates the report generation.
+* @param {string} templateTabName - The tab in the Doc.
+* @param {Object} [overrides] - Optional overrides (e.g., { docId: "..." })
+*/
+// 👇 FIXED: Added 'overrides = {}' to the parameters so the script knows what it is
+function createReportDraft(templateTabName, overrides = {}) {
+// 1. Determine which Doc ID to use
+// Priority: 1. Manual override, 2. Global MASTER_DOC_ID constant
+const activeDocId = overrides.docId || MASTER_DOC_ID;
+Logger.log(`🚀 Starting Report Generation for: "${templateTabName}" using Doc: ${activeDocId}`);
+// 2. Fetch Template using the specific Doc ID
+// Note: We pass activeDocId to getTemplate so it knows where to look
+const template = getTemplate(templateTabName, activeDocId);
+if (!template) {
+Logger.log("❌ Runner Stopped: Template '" + templateTabName + "' returned null.");
+return;
+}
+// 3. Resolve Recipients & Signature
+const toKeys = parseDistroKeys(template.to);
+const ccKeys = parseDistroKeys(template.cc);
+const recipientsTo = toKeys.length > 0 ? getDistroEmails(...toKeys).join(",") : "";
+const recipientsCc = ccKeys.length > 0 ? getDistroEmails(...ccKeys).join(",") : "";
+const sigObj = getUserGmailSignature();
+const finalHtmlBody = template.body + "<br><br>" + sigObj.html;
+// ============================================================
+// 🛡️ STEP 0: SAFE DRAFT RECYCLING
+// ============================================================
+try {
+// Optimization: Search explicitly for drafts first (faster than getDrafts() loop)
+const existingDrafts = GmailApp.search(`in:drafts subject:"${template.subject}"`);
+for (const draftThread of existingDrafts) {
+const draft = draftThread.getMessages().find(m => m.isDraft()); // Find the actual draft message
+if (!draft) continue;
+const threadSubject = draftThread.getFirstMessageSubject();
+const draftSubject = draft.getSubject();
+// LOGIC: Match if Thread Root matches OR exact Draft Subject matches.
+if (threadSubject === template.subject || draftSubject === template.subject) {
+Logger.log(`♻️ Found existing draft for "${template.subject}". Updating...`);
+const draftObj = GmailApp.getDraft(draft.getId());
+draftObj.update(recipientsTo, template.subject, "", {
+htmlBody: finalHtmlBody,
+cc: recipientsCc
+});
+Logger.log(`✅ Draft Updated Successfully.`);
+return; // 🛑 EXIT: Work is done.
+}
+}
+} catch (e) {
+Logger.log("⚠️ Draft Recycle Warning: " + e.message);
+}
+// ============================================================
+// 5. THREAD SEARCH (If no draft was updated)
+// ============================================================
+const threads = GmailApp.search(`subject:"${template.subject}"`, 0, 5);
+let targetThread = null;
+for (const thread of threads) {
+const originalSubject = thread.getFirstMessageSubject();
+// Safety check: Don't reply to OOO messages
+if (originalSubject.match(/^(Automatic reply|OOO|Out of Office|Absence Notice):/i)) continue;
+targetThread = thread;
+break;
+}
+// ============================================================
+// 6. CREATE NEW DRAFT
+// ============================================================
+if (targetThread) {
+targetThread.createDraftReplyAll("", {
+htmlBody: finalHtmlBody,
+cc: recipientsCc
+});
+Logger.log(`✅ New Draft Created (Reply Mode) on existing thread.`);
+} else {
+GmailApp.createDraft(recipientsTo, template.subject, "", {
+cc: recipientsCc,
+htmlBody: finalHtmlBody
+});
+Logger.log(`✅ New Draft Created (New Thread).`);
+}
+}
