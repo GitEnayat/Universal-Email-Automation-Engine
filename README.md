@@ -2,177 +2,190 @@
 
 > **A robust Google Apps Script tool that bridges the gap between raw data and professional communication.**
 
+### ⚡ Quick Start: The "TL;DR"
+
+- **What:** A library that turns Google Doc tabs into high-fidelity Gmail drafts.
+    
+- **Who:** Built for **Operations, WFM, Analytics, HR, Finance, and Logistics teams**—or any organization managing high-volume, data-driven reporting across various industries.
+    
+- **Value:** Zero-code template management. Updates to Sheets or Docs propagate to emails instantly.
+    
+- **Impact:** Reduces manual report creation time by ~90% and eliminates copy-paste errors.
+    
+
 ## 📖 What is this?
 
 The **Universal Email Automation Engine** helps you send complex, data-heavy emails without writing a new script for every report.
 
 It separates the **content** from the **code**. This means your team can update email templates in Google Docs and manage recipient lists in Google Sheets, while this engine handles the messy work of HTML formatting, token replacement, and secure delivery behind the scenes.
 
-**The Goal:** Stop wasting time copy-pasting tables and start sending perfect, consistent reports automatically.
+## 💡 The Problem This Solves (The "Why")
 
-## 💡 Why I Built This
+In high-volume environments like **Workforce Management (WFM)** or Operations, the journey from data to delivery is broken:
 
-If you've ever worked in **Workforce Management (WFM)** or Operations, you know the struggle:
-
-- **The Daily Grind:** Every morning, you open 10 different spreadsheets, copy ranges, paste them into Gmail, fix the broken borders, update the date, and pray you didn't paste the wrong numbers.
+- **The Daily Grind:** Every morning, you open 10 spreadsheets, copy ranges, paste them into Gmail, fix broken borders, and pray the numbers are right.
     
-- **The "Oops" Moments:** Accidentally leaving an old recipient on the CC line or forgetting to change "Good Morning" to "Good Afternoon."
+- **The "Oops" Moments:** Sending an old report to a new manager or forgetting to change "Good Morning" to "Good Evening."
     
-- **The Code Mess:** Hardcoding email addresses like `manager@company.com` inside your scripts, meaning you have to edit code every time someone gets promoted.
+- **Maintenance Debt:** Hardcoding email addresses inside scripts is a nightmare—every staff change requires a developer to edit code.
     
 
-**This engine solves that by:**
+**This engine transforms that workflow:**
 
-1. **Mimicking Google Sheets:** It generates HTML tables that look exactly like your spreadsheet (colors, borders, and all).
+1. **Sheet-to-HTML & Doc-to-HTML:** It generates tables that look exactly like your spreadsheet (colors, borders, and all) while simultaneously converting Google Doc structures (headings, lists, bolding) into professional HTML email bodies.
     
-2. **Using "Role Keys":** You send to `Morning_Leads`, not specific email addresses. The script looks up who that is in a Google Sheet.
+2. **Dynamic Roles:** You can connect this to your internal headcount or user file. The engine dynamically adds all recipients as long as they carry the correct tags or roles (e.g., Managers, Team Leaders, Analysts), removing manual maintenance.
     
-3. **One Script to Rule Them All:** A single library powers dozens of different reports.
-    
-
-## 🏗️ How it Works (Under the Hood)
-
-I designed this as a scalable system, not just a quick-fix script. Here are the core principles:
-
-### 1. Smart Drafts (No Spam Loops)
-
-Automation can be scary. What if it runs twice? This engine features **"Safe Draft Recycling."** Before creating a new email, it checks your Drafts folder. If a draft with the same subject exists, it _updates_ it instead of creating a duplicate. This keeps your workspace clean and lets you re-run the script safely.
-
-### 2. Built for Non-Coders
-
-Your stakeholders shouldn't need to know JavaScript to change an email template. They can just write in a Google Doc using simple placeholders like:
-
-- `{{DATE:Today}}`
-    
-- `[Table] Sheet: <ID>...`
+3. **Modular Library:** One central "Engine" powers dozens of different "Client" report scripts. It is incredibly easy to scale and add new reports without writing new logic. Once installed, it is simple to maintain; a single update to the library propagates to all your reports instantly.
     
 
-### 3. Modular Design
+## 🏗️ System Architecture & Engineering
 
-The code is split into logical parts. The part that reads the Doc doesn't know about Gmail. The part that draws the table doesn't know about recipients. This makes the system incredibly stable and easy to upgrade.
+I designed this as a scalable system, not just a quick-fix script.
 
-### 📊 Data Flow
+### 1. Smart Drafts (Idempotency)
 
-```
-graph TD
-    A[Google Sheet Data] -->|Fetch Range| B(TableRenderer)
-    C[Google Doc Template] -->|Parse Tokens| D(TemplateEngine)
-    E[Distribution List] -->|Lookup Emails| F(RecipientResolver)
-    B --> G{DraftOrchestrator}
-    D --> G
-    F --> G
-    G -->|Update or Create| H[Gmail Draft]
-```
+Automation can be scary if it runs twice. This engine features **"Safe Draft Recycling."** Before creating a new email, it checks your Drafts folder. If a draft with the same subject exists, it _updates_ it instead of creating a duplicate.
 
-## ✨ Key Features Explained
+### 2. Built for Non-Coders (The Dynamic Dictionary)
 
-### 📝 The Doc-to-HTML Engine
+Stakeholders can "program" their own emails directly in a Google Doc using a **Domain-Specific Language (DSL)**. To use these, simply type the tag exactly as shown (including curly braces) anywhere in your document body or subject line.
 
-Instead of just finding and replacing text, this engine reads the structure of your Google Doc. It preserves your bold text, links, bullet points, and headers, converting them into clean HTML that Gmail understands.
+#### **A. Time & Greeting Tags**
 
-### 🎨 The Table Renderer
+- `{{GREETING}}`: Smart logic that checks the current hour to say "Good Morning", "Good Afternoon", or "Good Evening".
+    
+- `{{TIME:BKK}}`: Inserts the current time for a specific region (e.g., Bangkok).
+    
+- `{{TIME:MYT}}`: Inserts current time in Malaysia Time.
+    
 
-Gmail is notoriously bad at displaying tables. This module reads your Google Sheet's raw data—including **merged cells** and **background colors**—and rebuilds them as a bulletproof HTML table. It looks great on desktop and mobile.
+#### **B. Advanced Date Math**
 
-### ⏱️ Dynamic "Smart Tags"
+The engine supports dynamic date calculations so you never have to manually type a date again.
 
-The system uses a live dictionary to fill in the blanks at the exact moment the email is generated:
-
-|   |   |
+|Input Syntax|Example Result (If Today is 19-Jan)|
 |---|---|
-|**Tag**|**What it does**|
-|`{{DATE:Today}}`|Inserts today's date (e.g., **19-Jan-2026**).|
-|`{{DATE:Today+1}}`|Calculates tomorrow's date automatically.|
-|`{{GREETING}}`|Checks the time and inserts "Good Morning" or "Good Afternoon".|
-|`{{RAMCO}}`|Calculates complex payroll cycles (e.g., "16th Jan - 15th Feb").|
+|`{{DATE:Today}}`|**19-Jan-2026**|
+|`{{DATE:Today-1}}`|**18-Jan-2026** (Yesterday)|
+|`{{DATE:Today+7}}`|**26-Jan-2026** (Next week)|
+|`{{DATE:MonthStart}}`|**01-Jan-2026**|
+|`{{RANGE:MonthStart:Today}}`|**01-Jan-2026 – 19-Jan-2026**|
+|`{{MONTH}}`|**January**|
 
-## 🚀 How to Use It
+#### **C. Data Injection**
 
-### Phase 1: Install the Library (One-Time Setup)
-
-1. Open the Google Apps Script project containing this code.
-    
-2. Click **Deploy** > **New Deployment** > **Library**.
-    
-3. Copy the **Script ID**.
+- `[Table] Sheet: <ID>, range: 'Tab'!A1:D10`: Injects a live data range from any Google Sheet you have access to.
     
 
-### Phase 2: Create Your Client Script
+## 🖼️ Visual Example: From Doc to Inbox
 
-In any new script where you want to send emails:
+### 1. The Template (Google Doc Tab)
 
-1. Click **Libraries +**, paste the ID, and name it `EmailEngine`.
+> **Subject:** {{GREETING}} | Ops Update - {{DATE:Today}}
+> 
+> Hi Team,
+> 
+> Here is the performance for the previous shift:
+> 
+> $$Table$$
+> 
+> Sheet: 1A2B3C..., range: 'Daily_Stats'!A1:E10
+> 
+> Regards, {{SIGNATURE}}
+
+### 2. The Result (Gmail Draft)
+
+> **Subject:** Good Morning | Ops Update - 19-Jan-2026
+> 
+> **Body:** Hi Team,
+> 
+> Here is the performance for the previous shift:
+> 
+> |Metric|Target|Actual|
+> |---|---|---|
+> |ASA|30s|12s|
+> |... (Styled with borders and colors from Sheets)|||
+> 
+> Regards,
+> 
+> $$Professional User Signature$$
+
+## ✨ Core Components & Setup
+
+### 👥 Dynamic Distribution Lists (The Address Book)
+
+Instead of managing static lists for every report, create a centralized tab in your Sheet. The engine parses this structure to find recipients based on their **Functional Roles** (e.g., Manager, Team Leader, Analyst) or **Specific Teams** (e.g., Team A, Team B).
+
+|Name|Email|Role Key 1|Role Key 2|
+|---|---|---|---|
+|John Doe|`john@company.com`|`Manager`|`Team_A_Leads`|
+|Jane Smith|`jane@company.com`|`Team_B_Analysts`|`WFM_Updates`|
+
+- **Role-Based Parsing:** You can call a "Role Key" in your script, and the engine will automatically find everyone tagged with that role. For example, calling `Team_A_Leads` collects all Managers and Leads associated with that specific group.
     
-2. Set up your configuration and trigger:
+- **Scalability:** If you link this to an internal headcount file, the email recipients update automatically whenever someone is promoted or moves teams—no code edits required.
     
+
+### ✍️ Professional Signatures
+
+The engine fetches your professional signature from a centralized `User_Profiles` sheet. This ensures that even if a bot creates the draft, it looks like it came directly from you, complete with branding and contact links.
+
+### 🎨 High-Fidelity Table Rendering
+
+Gmail's CSS support is limited. My `TableRenderer` converts modern Google Sheet formatting into **inline CSS styles** and handles **merged cells** (rowspan/colspan), ensuring your data looks professional on Outlook, Gmail Mobile, and Desktop.
+
+## 🚀 Usage Guide
+
+### Phase 1: Deployment
+
+1. Open the project code and click **Deploy** > **New Deployment** > **Library**.
+    
+2. Copy the **Script ID**.
+    
+
+### Phase 3: Implementation
+
+In your client script, add the Library and use the following code:
 
 ```
+// Basic usage: One-time install, use forever
 function runMorningReport() {
-  // 1. Pick the report you want to generate
-  // (This must match the Tab Name in your Google Doc)
-  const REPORT_KEY = "Morning_Status";
+  // Finds everyone tagged with "Morning_Status" role
+  EmailEngine.createReportDraft("Morning_Status");
+}
 
-  // 2. Call the engine
-  EmailEngine.createReportDraft(REPORT_KEY);
+// Advanced: Use a specific template doc for a one-off project
+function runOneOffReport() {
+  EmailEngine.createReportDraft("Project_Alpha", {
+    docId: "INSERT_GOOGLE_DOC_ID_HERE"
+  });
 }
 ```
 
-### Phase 3: Automate It (Optional)
+## 🛡️ Security & Reliability
 
-To make this run automatically every day:
-
-1. Go to the **Triggers** icon (alarm clock) in the left sidebar.
+- **Data Privacy:** All processing happens within your Google Workspace tenant. No data ever leaves your organization's ecosystem.
     
-2. Click **Add Trigger**.
+- **Service Limits:** Optimized to handle complex templates within Google Apps Script's 6-minute execution window.
     
-3. Select `runMorningReport`, choose **Time-driven**, and set it to run (e.g., Daily at 8 AM).
+- **Platform Awareness:** Engineered specifically to bypass Gmail's legacy CSS constraints by using inline style injection.
     
 
-## 📖 Configuration Guide
+## 👤 Author & Engineering Philosophy
 
-### 1. The "Distribution" Sheet
+Built by
 
-Create a tab in your Google Sheet to act as your address book.
+$$Enayatullh  Hassani$$
 
-|   |   |   |
-|---|---|---|
-|**Report_Key**|**TO**|**CC**|
-|**Morning_Status**|`boss@company.com`|`team@company.com`|
-|**Weekly_Review**|`client@partner.com`|`internal@company.com`|
+This project reflects a commitment to **Systems Thinking**. Instead of solving one problem for one person, I built a modular framework that solves a category of problems for an entire organization.
 
-> **Tip:** You can put multiple emails in one cell separated by semicolons (`;`).
-
-### 2. The Google Doc Template
-
-- **Tab Name:** Rename the specific _tab_ inside your Doc to match the `Report_Key` (e.g., `Morning_Status`).
+- **Engineering Impact:** Automated 15+ daily operational reports, saving an estimated 10+ hours of manual toil per week.
     
-- **Body:** Write your email as usual.
+- **Core Skills:** JavaScript (ES6+), Google Workspace APIs, Regex Parsing, HTML/CSS Optimization.
     
-- Tables: To insert a table, use this syntax on its own line:
+- **Contact:**
     
-    [Table] Sheet: <Spreadsheet_ID>, range: '<SheetName>'!A1:F20
-    
-
-## 📂 Project Structure
-
-|   |   |
-|---|---|
-|**File**|**What it does**|
-|**`Config.gs`**|Stores your IDs (Doc ID, Sheet ID) so you only have to change them in one place.|
-|**`TemplateEngine.gs`**|The "Reader." It scans your Doc and finds the placeholders.|
-|**`TableRenderer.gs`**|The "Artist." It draws the tables based on your Sheet data.|
-|**`RecipientResolver.gs`**|The "Postman." It figures out who needs to receive the email.|
-|**`DraftOrchestrator.gs`**|The "Manager." It coordinates everything and talks to Gmail.|
-
-## 👤 Author
-
-**Built by [Enayatullah Hassani]**
-
-I built this project to solve a real problem: the disconnect between data and communication. It demonstrates how **Systems Engineering** can turn a fragile, manual process into a robust, automated workflow.
-
-- **Tech Stack:** JavaScript (ES6+), Google Workspace APIs, Regex, HTML/CSS.
-    
-- **Contact:** [Your Email / LinkedIn]
-    
+    $$www.linkedin.com/in/enayatullahhassani$$
 
 _© 2026 Universal Email Automation Engine. Released under MIT License._
