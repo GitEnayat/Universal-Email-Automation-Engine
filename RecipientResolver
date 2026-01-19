@@ -1,129 +1,140 @@
+/**
+ * Identity and Recipient Management
+ * ---------------------------------------------------------
+ * This module handles the resolution of email distribution lists 
+ * and the generation of dynamic user-based email signatures.
+ */
 
-/* LIBRARY FILE: DistroHelpers.gs
---------------------------------
-Contains Distro Logic + Base64 Signature Logic
-FINAL VERSION: Cached + Base64 Embed
-*/
-// ==========================================
-// CONFIGURATION (DO NOT DELETE)
-// ==========================================
-const LOGO_FILE_ID     = "1dmuO2-836NaE9HryutgDiMyuqb5X0nSv";
-const USER_DATA_SHEET_ID = "1gvsnS8F5EWnnWFcTPURnZbLkU7yHrE_IOGZOQ1qxP6g";//distro tab
-const USER_DATA_TAB    = "WFM_Emails";
-const SIG_TAB_NAME     = "Signature_Template";
-// ==========================================
-// 1. DISTRIBUTION LIST HELPER
-// ==========================================
+/**
+ * Public interface to fetch email addresses based on tags or direct emails.
+ * @param {...string} args - Tags (e.g., 'Site_Lead') or direct email addresses.
+ * @return {string[]} Unique array of email addresses.
+ */
 function getDistroEmails(...args) {
-return DISTRO_INTERNAL_.get(...args);
+  return DISTRO_ENGINE.get(...args);
 }
-const DISTRO_INTERNAL_ = (() => {
-const config = {
-sheetUrl: 'https://docs.google.com/spreadsheets/d/1gvsnS8F5EWnnWFcTPURnZbLkU7yHrE_IOGZOQ1qxP6g/edit',
-tabName: 'Combined_Long',
-emailColumn: 'email',
-tagColumns: ['Site_wise_role', 'workflow_wise_role']
-};
-let cachedData = null;
-let tagColumnIndices = [];
-let emailColumnIndex = -1;
-const _fetchAndCacheData = () => {
-if (cachedData) return;
-try {
-const sheet = SpreadsheetApp.openByUrl(config.sheetUrl).getSheetByName(config.tabName);
-if (!sheet) throw new Error(`Sheet "${config.tabName}" not found.`);
-const data = sheet.getDataRange().getValues();
-const headers = data.shift();
-emailColumnIndex = headers.indexOf(config.emailColumn);
-if (emailColumnIndex === -1) throw new Error(`Email column "${config.emailColumn}" not found.`);
-tagColumnIndices = config.tagColumns
-.map(col => headers.indexOf(col))
-.filter(index => index !== -1);
-if (tagColumnIndices.length === 0) throw new Error("None of the tag columns were found.");
-cachedData = data;
-Logger.log('Distro data cached.');
-} catch (e) {
-cachedData = [];
-Logger.log(`Distro Error: ${e.message}`);
-}
-};
-return {
-get: function(...args) {
-_fetchAndCacheData();
-if (!cachedData || args.length === 0) return [];
-const tagsToLookUp = [];
-const directEmails = [];
-for (const arg of args) {
-if (typeof arg === 'string' && arg.includes('@')) {
-directEmails.push(arg);
-} else {
-tagsToLookUp.push(arg);
-}
-}
-let dynamicEmails = [];
-if (tagsToLookUp.length > 0) {
-dynamicEmails = cachedData.filter(row => {
-return tagColumnIndices.some(index => tagsToLookUp.includes(row[index]));
-}).map(row => row[emailColumnIndex])
-.filter(email => email && typeof email === 'string' && email.includes('@'));
-}
-const allEmails = [...dynamicEmails, ...directEmails];
-return [...new Set(allEmails)];
-}
-};
+
+/**
+ * Internal Engine for processing distribution lists with caching.
+ */
+const DISTRO_ENGINE = (() => {
+  const settings = {
+    sheetId: DATA_SOURCE_ID,
+    tabName: CONTACT_GROUPS_TAB,
+    emailCol: 'email',
+    tagCols: ['Site_wise_role', 'workflow_wise_role']
+  };
+
+  let cachedData = null;
+  let emailIdx = -1;
+  let tagIndices = [];
+
+  const _init = () => {
+    if (cachedData) return;
+    try {
+      const sheet = SpreadsheetApp.openById(settings.sheetId).getSheetByName(settings.tabName);
+      if (!sheet) throw new Error(`Contact sheet "${settings.tabName}" not found.`);
+      
+      const data = sheet.getDataRange().getValues();
+      const headers = data.shift();
+      
+      emailIdx = headers.indexOf(settings.emailCol);
+      tagIndices = settings.tagCols.map(col => headers.indexOf(col)).filter(i => i !== -1);
+      
+      if (emailIdx === -1 || tagIndices.length === 0) throw new Error("Missing required columns in distribution sheet.");
+      
+      cachedData = data;
+    } catch (e) {
+      cachedData = [];
+      Logger.error(`Distro Engine Initialization Failed: ${e.message}`);
+    }
+  };
+
+  return {
+    get: function(...args) {
+      _init();
+      if (!cachedData || args.length === 0) return [];
+
+      const lookupTags = [];
+      const directEmails = [];
+
+      args.forEach(arg => {
+        if (typeof arg === 'string' && arg.includes('@')) {
+          directEmails.push(arg);
+        } else {
+          lookupTags.push(arg);
+        }
+      });
+
+      let dynamicEmails = [];
+      if (lookupTags.length > 0) {
+        dynamicEmails = cachedData
+          .filter(row => tagIndices.some(idx => lookupTags.includes(row[idx])))
+          .map(row => row[emailIdx])
+          .filter(email => email && typeof email === 'string' && email.includes('@'));
+      }
+
+      return [...new Set([...dynamicEmails, ...directEmails])];
+    }
+  };
 })();
-// ==========================================
-// 2. SIGNATURE HELPER (Reusing Existing Logic)
-// ==========================================
+
+/**
+ * Generates an HTML signature based on the current user's profile.
+ * Fetches data from the profile sheet and embeds the organizational logo.
+ * @return {Object} Object containing the processed HTML signature.
+ */
 function getUserGmailSignature() {
-const currentUserEmail = Session.getActiveUser().getEmail();
-// 1. Fetch User Data
-let userDetails = { name: "WFM Team", rule: "WFM", email1: "", email2: "" };
-try {
-const sheet = SpreadsheetApp.openById(USER_DATA_SHEET_ID).getSheetByName(USER_DATA_TAB);
-const data = sheet.getDataRange().getValues();
-const headers = data[0];
-const colMap = {};
-headers.forEach((h, i) => colMap[h.trim()] = i);
-for (let i = 1; i < data.length; i++) {
-if (data[i][colMap['Scriper_Runner']] == currentUserEmail) {
-userDetails.name = data[i][colMap['Name']];
-userDetails.rule = data[i][colMap['Rule']];
-userDetails.email1 = data[i][colMap['First_Email']];
-userDetails.email2 = data[i][colMap['Second_Email']];
-break;
-}
-}
-} catch (e) { Logger.log("Sig Data Error: " + e.message); }
-// 2. Fetch Logo (Cached Base64)
-let imgTag = "";
-try {
-const cache = CacheService.getScriptCache();
-let b64 = cache.get("SIG_LOGO_B64"), mime = cache.get("SIG_LOGO_MIME");
-if (!b64) {
-const blob = DriveApp.getFileById(LOGO_FILE_ID).getBlob();
-b64 = Utilities.base64Encode(blob.getBytes());
-mime = blob.getContentType();
-cache.put("SIG_LOGO_B64", b64, 21600);
-cache.put("SIG_LOGO_MIME", mime, 21600);
-}
-imgTag = `<img src="data:${mime};base64,${b64}" width="200" style="display:block; height:auto;">`;
-} catch (e) { imgTag = ""; }
-// 3. REUSE: Call the existing Template Fetcher
-// This uses your existing convertElementToHtml_ logic automatically!
-const sigTemplate = getTemplate(SIG_TAB_NAME);
-let html = sigTemplate ? sigTemplate.body : "{{Sender_Name}}<br>{{Signature_Logo}}";
-// 4. Final Swap
-return {
-html: html
-.replace(/\{\{Sender_Name\}\}/g,   userDetails.name)
-.replace(/\{\{Sender_Role\}\}/g,   userDetails.rule)
-.replace(/\{\{First_Email\}\}/g,   userDetails.email1)
-.replace(/\{\{Second_Email\}\}/g,  userDetails.email2)
-.replace(/\{\{Signature_Logo\}\}/g, imgTag)
-};
-}
+  const activeUserEmail = Session.getActiveUser().getEmail();
+  let profile = { name: "Team Member", role: "Specialist", email1: "", email2: "" };
 
+  // 1. Resolve User Profile from Spreadsheet
+  try {
+    const sheet = SpreadsheetApp.openById(DATA_SOURCE_ID).getSheetByName(USER_PROFILES_TAB);
+    const data = sheet.getDataRange().getValues();
+    const headers = data[0];
+    const colMap = Object.fromEntries(headers.map((h, i) => [h.trim(), i]));
 
+    const userRow = data.find(row => row[colMap['Scriper_Runner']] === activeUserEmail);
+    if (userRow) {
+      profile.name = userRow[colMap['Name']];
+      profile.role = userRow[colMap['Rule']];
+      profile.email1 = userRow[colMap['First_Email']];
+      profile.email2 = userRow[colMap['Second_Email']];
+    }
+  } catch (e) { 
+    Logger.warn(`Profile lookup failed: ${e.message}`); 
+  }
 
-------------
+  // 2. Retrieve and Cache Brand Logo
+  let logoHtml = "";
+  try {
+    const cache = CacheService.getScriptCache();
+    let b64 = cache.get("BRAND_LOGO_B64");
+    let mime = cache.get("BRAND_LOGO_MIME");
+
+    if (!b64) {
+      const blob = DriveApp.getFileById(BRAND_LOGO_ID).getBlob();
+      b64 = Utilities.base64Encode(blob.getBytes());
+      mime = blob.getContentType();
+      cache.put("BRAND_LOGO_B64", b64, 21600); // 6 hour cache
+      cache.put("BRAND_LOGO_MIME", mime, 21600);
+    }
+    logoHtml = `<img src="data:${mime};base64,${b64}" width="200" style="display:block; height:auto;">`;
+  } catch (e) { 
+    Logger.warn(`Logo retrieval failed: ${e.message}`); 
+  }
+
+  // 3. Process Signature Template
+  const template = getTemplate(SIGNATURE_TAB_NAME);
+  const baseHtml = template ? template.body : "{{Sender_Name}}<br>{{Signature_Logo}}";
+
+  return {
+    html: baseHtml
+      .replace(/\{\{Sender_Name\}\}/g, profile.name)
+      .replace(/\{\{Sender_Role\}\}/g, profile.role)
+      .replace(/\{\{First_Email\}\}/g, profile.email1)
+      .replace(/\{\{Second_Email\}\}/g, profile.email2)
+      .replace(/\{\{Signature_Logo\}\}/g, logoHtml)
+  };
+}
