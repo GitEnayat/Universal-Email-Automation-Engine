@@ -178,9 +178,7 @@ function runOneOffReport() {
 
 ## 👤 Author & Engineering Philosophy
 
-Built by
-
-$$Enayatullh  Hassani$$
+Built by **Enayatullh  Hassani**
 
 This project reflects a commitment to **Systems Thinking**. Instead of solving one problem for one person, I built a modular framework that solves a category of problems for an entire organization.
 
