@@ -1,158 +1,161 @@
-/* LIBRARY FILE: TableHelper.gs
---------------------------------
-FINAL VERSION (Formatted Text + Empty Row Fix)
-- Fixed Regex to handle Bold/Links inside range definition.
-- Nuclear cleaning of invisible spaces.
-- Auto-fixing missing quotes.
-- [NEW] Automatically trims empty rows from the bottom of the range.
-*/
-/* REPLACE the processTables function with this version */
+/**
+ * Table Rendering Engine
+ * ---------------------------------------------------------
+ * Scans email body content for [Table] tags and replaces them with 
+ * formatted HTML tables derived from live Google Sheets data.
+ */
+
+/**
+ * Replaces table placeholders with formatted HTML tables.
+ * Supports Smart Chips, raw URLs, and complex A1 range definitions.
+ * @param {string} bodyHtml - The processed HTML body from the template.
+ * @return {string} The body with injected HTML tables.
+ */
 function processTables(bodyHtml) {
-// NEW REGEX: "Greedy" capture.
-// Captures everything between "Sheet:" and the comma ","
-// This allows it to accept Smart Chips, HTML links, or raw text.
-const regex = /\[Table\]\s*Sheet:\s*(.*?),\s*range:\s*(.*?)(?=<\/p>)/gi;
-return bodyHtml.replace(regex, function(match, urlPart, rawRange) {
-try {
-// 1. EXTRACT ID
-// The "urlPart" might be a Smart Chip HTML code now (<a href=...>)
-// But our helper function searches for the 25+ char ID anywhere in the string.
-const ssId = getIdFromUrl_(urlPart);
-if (!ssId) {
-Logger.log("❌ Table Error: Could not find Sheet ID in: " + urlPart);
-return "<p style='color:red;'>[Table Error: Invalid Sheet Link or Chip]</p>";
+  // Pattern identifies: [Table] Sheet: {ID/URL}, range: {A1Range}
+  const tableRegex = /\[Table\]\s*Sheet:\s*(.*?),\s*range:\s*(.*?)(?=<\/p>)/gi;
+
+  return bodyHtml.replace(tableRegex, function(match, sourcePart, rawRange) {
+    try {
+      // 1. Extract Spreadsheet ID from the link or Smart Chip
+      const spreadsheetId = _extractId(sourcePart);
+      if (!spreadsheetId) {
+        throw new Error("Invalid Spreadsheet ID or Smart Chip link provided.");
+      }
+
+      // 2. Sanitize the A1 Range string
+      let sanitizedRange = rawRange.replace(/<[^>]+>/g, "") // Strip HTML
+        .replace(/[\u2018\u2019]/g, "'")                   // Standardize quotes
+        .replace(/[\u00A0&nbsp;]/g, " ")                   // Fix invisible spaces
+        .replace(/[.,;]$/, "")                             // Remove trailing punctuation
+        .trim();
+
+      // 3. Auto-format sheet names containing spaces
+      sanitizedRange = _ensureRangeQuotes(sanitizedRange);
+
+      Logger.log(`TableRenderer: Fetching "${sanitizedRange}" from ${spreadsheetId}`);
+      return _generateHtmlTable(spreadsheetId, sanitizedRange);
+
+    } catch (e) {
+      Logger.log(`TableRenderer Error: ${e.message}`);
+      return `<p style="color:red;">(Table Error: ${e.message})</p>`;
+    }
+  });
 }
-// 2. STRIP HTML TAGS (From the range section)
-let cleanRange = rawRange.replace(/<[^>]+>/g, "");
-// 3. NUCLEAR CLEANING (Invisible Spaces)
-cleanRange = cleanRange
-.replace(/[\u2018\u2019]/g, "'") // Fix Smart Quotes
-.replace(/\u00A0/g, " ")         // Fix Non-Breaking Spaces
-.replace(/&nbsp;/g, " ")         // Fix HTML spaces
-.trim();
-// Fix trailing punctuation
-if (/[.,;]$/.test(cleanRange)) {
-cleanRange = cleanRange.slice(0, -1).trim();
+
+/**
+ * Internal helper to extract the 25+ character ID from a URL or string.
+ */
+function _extractId(input) {
+  const match = input.match(/[-\w]{25,}/);
+  return match ? match[0] : null;
 }
-// 4. AUTO-QUOTE
-cleanRange = fixMissingQuotes_(cleanRange);
-Logger.log(`[TableHelper] Fetching: "${cleanRange}" from ID: ${ssId}`);
-return getHtmlTableFromSheet_(ssId, cleanRange);
-} catch (e) {
-Logger.log(`❌ [Table Error] ${e.message}`);
-return `<p style="color:red;">(Table Error: ${e.message})</p>`;
+
+/**
+ * Ensures sheet names with spaces are wrapped in single quotes.
+ */
+function _ensureRangeQuotes(rangeStr) {
+  if (rangeStr.startsWith("'")) return rangeStr;
+  const bangIndex = rangeStr.lastIndexOf("!");
+  if (bangIndex === -1) return rangeStr;
+
+  const sheetName = rangeStr.substring(0, bangIndex);
+  const cellAddress = rangeStr.substring(bangIndex + 1);
+
+  return sheetName.includes(" ") ? `'${sheetName}'!${cellAddress}` : rangeStr;
 }
-});
-}
-// ==========================================
-// PRIVATE HELPERS
-// ==========================================
-function getIdFromUrl_(url) {
-const match = url.match(/[-\w]{25,}/);
-return match ? match[0] : null;
-}
-function fixMissingQuotes_(rangeStr) {
-if (rangeStr.startsWith("'")) return rangeStr;
-const lastBang = rangeStr.lastIndexOf("!");
-if (lastBang === -1) return rangeStr;
-const sheetName = rangeStr.substring(0, lastBang);
-const cellRange = rangeStr.substring(lastBang + 1);
-if (sheetName.includes(" ")) {
-return `'${sheetName}'!${cellRange}`;
-}
-return rangeStr;
-}
-function getHtmlTableFromSheet_(ssId, rangeA1) {
-const ss = SpreadsheetApp.openById(ssId);
-const range = ss.getRange(rangeA1);
-// 1. Fetch All Data
-let values = range.getDisplayValues();
-// -------------------------------------------------------------
-// ✂️ TRIM LOGIC: Remove empty rows from the bottom
-// -------------------------------------------------------------
-let lastRowIndex = values.length - 1;
-while (lastRowIndex >= 0) {
-// Check if every cell in this row is empty/whitespace
-const isRowEmpty = values[lastRowIndex].every(cell => cell.trim() === "");
-if (!isRowEmpty) break; // We found data, stop trimming!
-lastRowIndex--;
-}
-// If the whole table is empty, return a message
-if (lastRowIndex < 0) return "<p><i>(Table contains no data)</i></p>";
-// Determine the new height (exclusive for slice)
-const newRowCount = lastRowIndex + 1;
-// Trim the values array
-values = values.slice(0, newRowCount);
-// 2. Fetch & Trim Formatting Arrays (Must match values length)
-// We fetch everything first, then slice it to match the cleaned data
-const backgrounds = range.getBackgrounds().slice(0, newRowCount);
-const fontWeights = range.getFontWeights().slice(0, newRowCount);
-const fontColors = range.getFontColors().slice(0, newRowCount);
-const fontSizes = range.getFontSizes().slice(0, newRowCount);
-const horizontalAligns = range.getHorizontalAlignments().slice(0, newRowCount);
-const verticalAligns = range.getVerticalAlignments().slice(0, newRowCount);
-const fontFamilies = range.getFontFamilies().slice(0, newRowCount);
-// 3. Handle Merged Ranges
-const mergedRanges = range.getMergedRanges();
-const numRows = values.length; // Now using the TRIMMED length
-const numCols = values[0].length;
-let cellMeta = Array.from({ length: numRows }, () =>
-Array.from({ length: numCols }, () => ({ rowSpan: 1, colSpan: 1, skip: false }))
-);
-const startRowIndex = range.getRow();
-const startColIndex = range.getColumn();
-mergedRanges.forEach(merge => {
-const mergeStartRow = merge.getRow() - startRowIndex;
-const mergeStartCol = merge.getColumn() - startColIndex;
-const mergeNumRows = merge.getNumRows();
-const mergeNumCols = merge.getNumColumns();
-for (let r = 0; r < mergeNumRows; r++) {
-for (let c = 0; c < mergeNumCols; c++) {
-const targetRow = mergeStartRow + r;
-const targetCol = mergeStartCol + c;
-// Bound check: Only apply merge if it falls within our TRIMMED table
-if (targetRow >= 0 && targetRow < numRows && targetCol >= 0 && targetCol < numCols) {
-if (r === 0 && c === 0) {
-cellMeta[targetRow][targetCol].rowSpan = mergeNumRows;
-cellMeta[targetRow][targetCol].colSpan = mergeNumCols;
-} else {
-cellMeta[targetRow][targetCol].skip = true;
-}
-}
-}
-}
-});
-// 4. Build HTML
-let html = '<table style="border-collapse: collapse; border: 1px solid #ccc; font-family: Arial, sans-serif; font-size: 10pt;">';
-for (let i = 0; i < numRows; i++) {
-html += '<tr>';
-for (let j = 0; j < numCols; j++) {
-if (cellMeta[i][j].skip) continue;
-const cellText = values[i][j];
-const bgColor = backgrounds[i][j];
-const weight = fontWeights[i][j];
-const color = fontColors[i][j];
-const fontSize = fontSizes[i][j];
-const hAlign = horizontalAligns[i][j];
-const vAlign = verticalAligns[i][j];
-const fontFamily = fontFamilies[i][j] || 'Arial';
-const rowSpanAttr = cellMeta[i][j].rowSpan > 1 ? ` rowspan="${cellMeta[i][j].rowSpan}"` : "";
-const colSpanAttr = cellMeta[i][j].colSpan > 1 ? ` colspan="${cellMeta[i][j].colSpan}"` : "";
-html += `<td${rowSpanAttr}${colSpanAttr} style="
-border: 1px solid #ccc;
-padding: 5px 8px;
-background-color: ${bgColor};
-color: ${color};
-font-weight: ${weight};
-font-size: ${fontSize}pt;
-font-family: ${fontFamily}, sans-serif;
-text-align: ${hAlign};
-vertical-align: ${vAlign};
-white-space: pre-wrap;
-">${cellText}</td>`;
-}
-html += '</tr>';
-}
-html += '</table>';
-return html;
+
+/**
+ * Fetches data and styles from Sheets to build a CSS-styled HTML table.
+ * Includes logic for merged cells and automatic empty-row trimming.
+ */
+function _generateHtmlTable(ssId, rangeA1) {
+  const ss = SpreadsheetApp.openById(ssId);
+  const range = ss.getRange(rangeA1);
+  
+  let values = range.getDisplayValues();
+
+  // ✂️ TRIM LOGIC: Remove empty rows from the bottom of the range
+  let lastDataRow = values.length - 1;
+  while (lastDataRow >= 0) {
+    if (!values[lastDataRow].every(cell => cell.trim() === "")) break;
+    lastDataRow--;
+  }
+
+  if (lastDataRow < 0) return "<p><i>(Table contains no data)</i></p>";
+
+  const rowCount = lastDataRow + 1;
+  values = values.slice(0, rowCount);
+
+  // Fetch formatting arrays and trim them to match the data
+  const backgrounds = range.getBackgrounds().slice(0, rowCount);
+  const fontWeights = range.getFontWeights().slice(0, rowCount);
+  const fontColors = range.getFontColors().slice(0, rowCount);
+  const fontSizes = range.getFontSizes().slice(0, rowCount);
+  const hAligns = range.getHorizontalAlignments().slice(0, rowCount);
+  const vAligns = range.getVerticalAlignments().slice(0, rowCount);
+  const families = range.getFontFamilies().slice(0, rowCount);
+
+  // Handle Merged Cells
+  const mergedRanges = range.getMergedRanges();
+  const colCount = values[0].length;
+  let cellMeta = Array.from({ length: rowCount }, () =>
+    Array.from({ length: colCount }, () => ({ rowSpan: 1, colSpan: 1, skip: false }))
+  );
+
+  const startRow = range.getRow();
+  const startCol = range.getColumn();
+
+  mergedRanges.forEach(merge => {
+    const rIdx = merge.getRow() - startRow;
+    const cIdx = merge.getColumn() - startCol;
+    const mRows = merge.getNumRows();
+    const mCols = merge.getNumColumns();
+
+    for (let r = 0; r < mRows; r++) {
+      for (let c = 0; c < mCols; c++) {
+        const tRow = rIdx + r;
+        const tCol = cIdx + c;
+        if (tRow >= 0 && tRow < rowCount && tCol >= 0 && tCol < colCount) {
+          if (r === 0 && c === 0) {
+            cellMeta[tRow][tCol].rowSpan = mRows;
+            cellMeta[tRow][tCol].colSpan = mCols;
+          } else {
+            cellMeta[tRow][tCol].skip = true;
+          }
+        }
+      }
+    }
+  });
+
+  // Build the HTML Table
+  let html = '<table style="border-collapse: collapse; border: 1px solid #ccc; font-family: Arial, sans-serif; font-size: 10pt; width: auto;">';
+  
+  for (let i = 0; i < rowCount; i++) {
+    html += '<tr>';
+    for (let j = 0; j < colCount; j++) {
+      if (cellMeta[i][j].skip) continue;
+
+      const style = [
+        `border: 1px solid #ccc`,
+        `padding: 5px 8px`,
+        `background-color: ${backgrounds[i][j]}`,
+        `color: ${fontColors[i][j]}`,
+        `font-weight: ${fontWeights[i][j]}`,
+        `font-size: ${fontSizes[i][j]}pt`,
+        `font-family: ${families[i][j] || 'Arial'}, sans-serif`,
+        `text-align: ${hAligns[i][j]}`,
+        `vertical-align: ${vAligns[i][j]}`,
+        `white-space: pre-wrap`
+      ].join('; ');
+
+      const rowSpan = cellMeta[i][j].rowSpan > 1 ? ` rowspan="${cellMeta[i][j].rowSpan}"` : "";
+      const colSpan = cellMeta[i][j].colSpan > 1 ? ` colspan="${cellMeta[i][j].colSpan}"` : "";
+
+      html += `<td${rowSpan}${colSpan} style="${style}">${values[i][j]}</td>`;
+    }
+    html += '</tr>';
+  }
+  
+  return html + '</table>';
 }
