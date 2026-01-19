@@ -81,16 +81,17 @@ The engine supports dynamic date calculations so you never have to manually type
 ## 🖼️ Visual Example: From Doc to Inbox
 
 ### 1. The Template (Google Doc Tab)
-
+> [TO] Manager, Team Leader
+> [CC] GroupA, GroupB
+  [SUBJECT]
 > **Subject:** {{GREETING}} | Ops Update - {{DATE:Today}}
-> 
+> [BODY]
 > Hi Team,
 > 
 > Here is the performance for the previous shift:
-> 
+> [Table]
 > $$Table$$
-> 
-> Sheet: 1A2B3C..., range: 'Daily_Stats'!A1:E10
+> Sheet: URL..., range: 'Daily_Stats'!A1:E10
 > 
 > Regards, {{SIGNATURE}}
 
