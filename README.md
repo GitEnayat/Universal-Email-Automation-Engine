@@ -1,5 +1,10 @@
 # 📧 Universal Email Automation Engine
 
+[![Google Apps Script](https://img.shields.io/badge/Google%20Apps%20Script-Compatible-green)](https://developers.google.com/apps-script)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Status: Production](https://img.shields.io/badge/Status-Production%20Ready-brightgreen)](https://github.com/anomalyco/opencode)
+[![Code Style: JSDoc](https://img.shields.io/badge/Code%20Style-JSDoc-blue)](https://jsdoc.app/)
+
 > **A robust Google Apps Script tool that bridges the gap between raw data and professional communication.**
 
 ### ⚡ Quick Start: The "TL;DR"
@@ -178,7 +183,7 @@ function runOneOffReport() {
 
 ## 👤 Author & Engineering Philosophy
 
-Built by **Enayatullh  Hassani**
+Built by **Enayatullh**
 
 This project reflects a commitment to **Systems Thinking**. Instead of solving one problem for one person, I built a modular framework that solves a category of problems for an entire organization.
 
@@ -188,6 +193,6 @@ This project reflects a commitment to **Systems Thinking**. Instead of solving o
     
 - **Contact:**
     
-    $$www.linkedin.com/in/enayatullahhassani$$
+    
 
 _© 2026 Universal Email Automation Engine. Released under MIT License._
