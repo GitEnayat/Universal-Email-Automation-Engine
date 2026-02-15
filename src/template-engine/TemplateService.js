@@ -115,8 +115,7 @@ function applyDictionary_(text) {
           }
           return Utilities.formatDate(d, Session.getScriptTimeZone(), "MMMM yyyy");
 
-        case "RAMCO":
-          return getRamcoCycle_(param1 === "PREVIOUS" ? -1 : 0);
+
 
         case "DATE_FORMAT":
           const dateObj = parseDateToken_(param1);
@@ -200,4 +199,79 @@ function findTabRecursive_(tabsList, targetName) {
     }
   }
   return null;
+}
+
+// ==========================================
+// RESTORED HELPER FUNCTIONS
+// ==========================================
+
+function getFormattedText_(element) {
+  const textObj = element.editAsText();
+  const text = textObj.getText();
+  if (!text) return "";
+
+  const indices = textObj.getTextAttributeIndices();
+  let html = "";
+
+  for (let i = 0; i < indices.length; i++) {
+    const start = indices[i];
+    const end = (i + 1 < indices.length) ? indices[i + 1] : text.length;
+    let chunk = text.substring(start, end);
+
+    // Escape HTML special chars
+    chunk = chunk
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+
+    if (textObj.isBold(start)) chunk = "<b>" + chunk + "</b>";
+    if (textObj.isItalic(start)) chunk = "<i>" + chunk + "</i>";
+    if (textObj.isUnderline(start)) chunk = "<u>" + chunk + "</u>";
+
+    // Color
+    const color = textObj.getForegroundColor(start);
+    if (color && color !== "#000000") {
+      chunk = `<span style="color:${color}">${chunk}</span>`;
+    }
+
+    // Link
+    const url = textObj.getLinkUrl(start);
+    if (url) {
+      chunk = `<a href="${url}">${chunk}</a>`;
+    }
+
+    html += chunk;
+  }
+  return html;
+}
+
+function processTableHTML_(table) {
+  let html = '<table style="border-collapse: collapse; width: 100%; border: 1px solid #ccc;">';
+  const numRows = table.getNumRows();
+
+  for (let r = 0; r < numRows; r++) {
+    const row = table.getRow(r);
+    html += "<tr>";
+    const numCells = row.getNumCells();
+
+    for (let c = 0; c < numCells; c++) {
+      const cell = row.getCell(c);
+      let cellHtml = "";
+
+      // Process cell contents (paragraphs usually)
+      for (let k = 0; k < cell.getNumChildren(); k++) {
+        cellHtml += convertElementToHtml_(cell.getChild(k));
+      }
+
+      html += `<td style="border: 1px solid #ccc; padding: 8px;">${cellHtml}</td>`;
+    }
+    html += "</tr>";
+  }
+
+  html += "</table>";
+  return html;
+}
+
+function getRoundedTime_(timeZone, label) {
+  return Utilities.formatDate(new Date(), timeZone, "HH:mm") + (label ? " " + label : "");
 }

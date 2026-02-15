@@ -13,26 +13,29 @@ class AppConfig {
     const DEFAULTS = {
 
       // Google Doc containing email templates
-      templateDocumentId: "1dKAx4H8ILn94JZiu3F3SOI7_aO9UXkRLmtFuF-iYOrY",
+      templateDocumentId: "INSERT_TEMPLATE_DOC_ID",
 
       // Spreadsheet containing recipient directory
-      directorySheetId: "1gvsnS8F5EWnnWFcTPURnZbLkU7yHrE_IOGZOQ1qxP6g",
-      recipientsTabName: "Combined_Long",
-      senderProfilesTabName: "WFM_Emails",
+      directorySheetId: "INSERT_DIRECTORY_SHEET_ID",
+      recipientsTabName: "Recipients_Master",
+      senderProfilesTabName: "Sender_Profiles",
 
       // Recipient directory columns
-      recipientEmailColumn: "email",
-      recipientTagColumns: ["Site_wise_role", "workflow_wise_role"],
+      recipientEmailColumn: "Email",
+      recipientTagColumns: ["Role", "Team", "Department"],
 
       // Link repository (centralised URLs)
-      linkRepositorySheetId: "1JSIsA4SVIxt0POLYn97t5sg_OhbSTVKEXB0fQc10zJk",
-      linkRepositoryTabName: "current_files",
-      linkKeyColumn: "Mapping",
-      linkUrlColumn: "File_Link",
+      linkRepositorySheetId: "INSERT_LINK_SHEET_ID",
+      linkRepositoryTabName: "Link_Registry",
+      linkKeyColumn: "Link_Key",
+      linkUrlColumn: "Target_URL",
 
       // Branding / assets
-      logoFileId: "1dmuO2-836NaE9HryutgDiMyuqb5X0nSv",
-      signatureTemplateTab: "Signature_Template"
+      logoFileId: "INSERT_LOGO_FILE_ID",
+      signatureTemplateTab: "Signature_Template",
+
+      // System Logging
+      logsTabName: "System_Logs"
 
     };
 

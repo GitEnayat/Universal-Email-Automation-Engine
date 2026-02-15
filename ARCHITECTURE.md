@@ -51,7 +51,7 @@ sequenceDiagram
     participant Orchestrator as MailOrchestrator
     participant Config as AppConfig
     participant Template as TemplateService
-    participant Links as LinkRepository
+    participant CMS as LinkRepository
     participant Recipients as RecipientService
     participant Gmail as GmailApp
 
@@ -61,11 +61,11 @@ sequenceDiagram
     Orchestrator->>Template: fetchTemplate("Morning_Report")
     Template-->>Orchestrator: {subject, body, to_tags}
     
-    Orchestrator->>Links: loadLinkRepository()
-    Orchestrator->>Links: injectManagedLinks(body)
+    Orchestrator->>CMS: loadLinkRepository()
+    Orchestrator->>CMS: injectManagedLinks(body)
     
     Orchestrator->>Recipients: resolveRecipients(to_tags)
-    Recipients-->>Orchestrator: ["user1@company.com", "user2@company.com"]
+    Recipients-->>Orchestrator: ["user1@example.com", "user2@example.com"]
     
     Orchestrator->>Recipients: generateUserSignature()
     
@@ -132,7 +132,6 @@ sequenceDiagram
 - `{{RANGE:MonthStart:Today}}` - Date ranges
 - `{{TIME:BKK}}` - Time with timezone
 - `{{MONTHNAME:-1}}` - Month names
-- `{{RAMCO}}` - RAMCO billing cycles
 - `{{GREETING}}` - Time-based greeting
 - `{{ACTIVE_SPREADSHEET_LINK}}` - Dynamic URLs
 
@@ -306,15 +305,6 @@ Recommended test coverage:
 - **Mitigation**: `isUiContextAvailable_()` helper checks for container-bound context
 - **Mitigation**: All UI functions wrapped in try/catch blocks
 - **Result**: Graceful failure with helpful error messages in standalone mode
-
-## Future Enhancements
-
-1. **Structured Logging** (6.1): ✅ Implemented
-2. **Config Validation** (6.2): ✅ Implemented
-3. **Batch Processing** (6.6): ✅ Implemented
-4. **UI Menu** (6.8): ✅ Implemented
-5. **Unit Tests** (6.5): ✅ Implemented
-6. **Documentation**: ✅ ARCHITECTURE.md (this file)
 
 ---
 
