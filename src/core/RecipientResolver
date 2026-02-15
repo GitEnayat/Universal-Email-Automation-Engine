@@ -1,0 +1,140 @@
+/**
+ * Identity and Recipient Management
+ * ---------------------------------------------------------
+ * This module handles the resolution of email distribution lists 
+ * and the generation of dynamic user-based email signatures.
+ */
+
+/**
+ * Public interface to fetch email addresses based on tags or direct emails.
+ * @param {...string} args - Tags (e.g., 'Site_Lead') or direct email addresses.
+ * @return {string[]} Unique array of email addresses.
+ */
+function getDistroEmails(...args) {
+  return DISTRO_ENGINE.get(...args);
+}
+
+/**
+ * Internal Engine for processing distribution lists with caching.
+ */
+const DISTRO_ENGINE = (() => {
+  const settings = {
+    sheetId: DATA_SOURCE_ID,
+    tabName: CONTACT_GROUPS_TAB,
+    emailCol: 'email',
+    tagCols: ['Site_wise_role', 'workflow_wise_role']
+  };
+
+  let cachedData = null;
+  let emailIdx = -1;
+  let tagIndices = [];
+
+  const _init = () => {
+    if (cachedData) return;
+    try {
+      const sheet = SpreadsheetApp.openById(settings.sheetId).getSheetByName(settings.tabName);
+      if (!sheet) throw new Error(`Contact sheet "${settings.tabName}" not found.`);
+      
+      const data = sheet.getDataRange().getValues();
+      const headers = data.shift();
+      
+      emailIdx = headers.indexOf(settings.emailCol);
+      tagIndices = settings.tagCols.map(col => headers.indexOf(col)).filter(i => i !== -1);
+      
+      if (emailIdx === -1 || tagIndices.length === 0) throw new Error("Missing required columns in distribution sheet.");
+      
+      cachedData = data;
+    } catch (e) {
+      cachedData = [];
+      Logger.error(`Distro Engine Initialization Failed: ${e.message}`);
+    }
+  };
+
+  return {
+    get: function(...args) {
+      _init();
+      if (!cachedData || args.length === 0) return [];
+
+      const lookupTags = [];
+      const directEmails = [];
+
+      args.forEach(arg => {
+        if (typeof arg === 'string' && arg.includes('@')) {
+          directEmails.push(arg);
+        } else {
+          lookupTags.push(arg);
+        }
+      });
+
+      let dynamicEmails = [];
+      if (lookupTags.length > 0) {
+        dynamicEmails = cachedData
+          .filter(row => tagIndices.some(idx => lookupTags.includes(row[idx])))
+          .map(row => row[emailIdx])
+          .filter(email => email && typeof email === 'string' && email.includes('@'));
+      }
+
+      return [...new Set([...dynamicEmails, ...directEmails])];
+    }
+  };
+})();
+
+/**
+ * Generates an HTML signature based on the current user's profile.
+ * Fetches data from the profile sheet and embeds the organizational logo.
+ * @return {Object} Object containing the processed HTML signature.
+ */
+function getUserGmailSignature() {
+  const activeUserEmail = Session.getActiveUser().getEmail();
+  let profile = { name: "Team Member", role: "Specialist", email1: "", email2: "" };
+
+  // 1. Resolve User Profile from Spreadsheet
+  try {
+    const sheet = SpreadsheetApp.openById(DATA_SOURCE_ID).getSheetByName(USER_PROFILES_TAB);
+    const data = sheet.getDataRange().getValues();
+    const headers = data[0];
+    const colMap = Object.fromEntries(headers.map((h, i) => [h.trim(), i]));
+
+    const userRow = data.find(row => row[colMap['Scriper_Runner']] === activeUserEmail);
+    if (userRow) {
+      profile.name = userRow[colMap['Name']];
+      profile.role = userRow[colMap['Rule']];
+      profile.email1 = userRow[colMap['First_Email']];
+      profile.email2 = userRow[colMap['Second_Email']];
+    }
+  } catch (e) { 
+    Logger.warn(`Profile lookup failed: ${e.message}`); 
+  }
+
+  // 2. Retrieve and Cache Brand Logo
+  let logoHtml = "";
+  try {
+    const cache = CacheService.getScriptCache();
+    let b64 = cache.get("BRAND_LOGO_B64");
+    let mime = cache.get("BRAND_LOGO_MIME");
+
+    if (!b64) {
+      const blob = DriveApp.getFileById(BRAND_LOGO_ID).getBlob();
+      b64 = Utilities.base64Encode(blob.getBytes());
+      mime = blob.getContentType();
+      cache.put("BRAND_LOGO_B64", b64, 21600); // 6 hour cache
+      cache.put("BRAND_LOGO_MIME", mime, 21600);
+    }
+    logoHtml = `<img src="data:${mime};base64,${b64}" width="200" style="display:block; height:auto;">`;
+  } catch (e) { 
+    Logger.warn(`Logo retrieval failed: ${e.message}`); 
+  }
+
+  // 3. Process Signature Template
+  const template = getTemplate(SIGNATURE_TAB_NAME);
+  const baseHtml = template ? template.body : "{{Sender_Name}}<br>{{Signature_Logo}}";
+
+  return {
+    html: baseHtml
+      .replace(/\{\{Sender_Name\}\}/g, profile.name)
+      .replace(/\{\{Sender_Role\}\}/g, profile.role)
+      .replace(/\{\{First_Email\}\}/g, profile.email1)
+      .replace(/\{\{Second_Email\}\}/g, profile.email2)
+      .replace(/\{\{Signature_Logo\}\}/g, logoHtml)
+  };
+}

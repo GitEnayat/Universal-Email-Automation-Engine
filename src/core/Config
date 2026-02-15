@@ -1,0 +1,29 @@
+/**
+ * PROJECT CONFIGURATION
+ * ---------------------------------------------------------
+ * This file contains all global IDs and constants. 
+ * Replace placeholders with your specific Google Drive IDs.
+ */
+
+// 📄 TEMPLATE SOURCE
+// The Google Doc containing your email tabs/templates
+const TEMPLATE_DOC_ID = "YOUR_MASTER_DOC_ID_HERE";
+
+// 👤 SIGNATURE & BRANDING
+// The Google Drive File ID for your organization's logo
+const BRAND_LOGO_ID = "YOUR_LOGO_FILE_ID_HERE";
+// The name of the Tab in the Template Doc used for the signature layout
+const SIGNATURE_TAB_NAME = "Email_Signature";
+
+// 📊 DATA SOURCES
+// The Spreadsheet ID containing user profiles and distribution lists
+const DATA_SOURCE_ID = "YOUR_DATA_SPREADSHEET_ID_HERE";
+// The tab name inside the Spreadsheet for individual user data (Name, Role, etc.)
+const USER_PROFILES_TAB = "User_Data";
+// The tab name inside the Spreadsheet for distribution/contact lists
+const CONTACT_GROUPS_TAB = "Distribution_Lists";
+
+// 🌐 DEFAULTS
+// Fallback Timezone if none is specified
+const DEFAULT_TIMEZONE = "Asia/Kuala_Lumpur";
+const DEFAULT_TZ_LABEL = "MYT";

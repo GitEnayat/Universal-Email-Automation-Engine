@@ -1,0 +1,253 @@
+/**
+ * Template Engine & Parser
+ * ---------------------------------------------------------
+ * Handles the retrieval of templates from Google Doc tabs, parses dynamic 
+ * placeholders {{TAG}}, and converts Doc elements into email-safe HTML.
+ */
+
+/**
+ * Main entry point to fetch and parse a template.
+ * @param {string} tabName - The exact name of the tab in the Google Doc.
+ * @param {string} [overrideDocId] - Optional ID to override the default template source.
+ * @return {Object|null} Processed template object (subject, body, to, cc).
+ */
+function getTemplate(tabName, overrideDocId) {
+  const sourceDocId = overrideDocId || TEMPLATE_DOC_ID;
+  const doc = DocumentApp.openById(sourceDocId);
+  const tabs = doc.getTabs();
+
+  // 1. Recursive search for the specified tab
+  const targetTab = _findTabRecursive(tabs, tabName);
+  if (!targetTab) {
+    Logger.error(`TemplateEngine: Tab '${tabName}' not found in Doc: ${sourceDocId}`);
+    return null;
+  }
+
+  // 2. Extract content from the Document Tab
+  const docTab = targetTab.asDocumentTab();
+  const bodyElement = docTab.getBody();
+  const childCount = bodyElement.getNumChildren();
+  
+  let result = { subject: "", body: "", to: "", cc: "" };
+  let activeMode = "none";
+
+  for (let i = 0; i < childCount; i++) {
+    const child = bodyElement.getChild(i);
+    const rawText = child.getText().trim();
+
+    // Determine capture mode based on markers
+    if (rawText === "[SUBJECT]") { activeMode = "subject"; continue; }
+    if (rawText === "[BODY]")    { activeMode = "body";    continue; }
+    if (rawText === "[TO]")      { activeMode = "to";      continue; }
+    if (rawText === "[CC]")      { activeMode = "cc";      continue; }
+
+    // Assign content to respective keys
+    if (activeMode === "subject" && rawText !== "") { 
+      result.subject = rawText; 
+      activeMode = "none"; 
+    } else if (activeMode === "to" && rawText !== "") { 
+      result.to += rawText + ","; 
+    } else if (activeMode === "cc" && rawText !== "") { 
+      result.cc += rawText + ","; 
+    } else if (activeMode === "body") { 
+      result.body += _convertElementToHtml(child); 
+    }
+  }
+
+  // 3. Process dynamic placeholders and external components
+  const finalSubject = applyDictionary_(result.subject);
+  let finalBody = applyDictionary_(result.body);
+  
+  // Logic from TableRenderer.gs
+  finalBody = processTables(finalBody);
+
+  return {
+    subject: finalSubject,
+    body:    finalBody,
+    to:      result.to,
+    cc:      result.cc
+  };
+}
+
+/**
+ * Cleans recipient key strings (removes quotes/brackets).
+ */
+function parseDistroKeys(rawString) {
+  if (!rawString) return [];
+  return rawString.split(",")
+    .map(item => item.trim().replace(/^[\('"]+|[\)'"]+$/g, ""))
+    .filter(item => item !== "");
+}
+
+/**
+ * Dynamic Dictionary Engine
+ * Processes placeholders like {{DATE:Today}}, {{TIME}}, {{RAMCO}}, etc.
+ */
+function applyDictionary_(text) {
+  if (!text) return "";
+
+  // HEALER: Strip HTML that may have been accidentally bolded/formatted inside brackets
+  const sanitizedText = text.replace(/\{\{(.*?)\}\}/g, (match, inner) => 
+    "{{" + inner.replace(/<[^>]+>/g, "").trim() + "}}"
+  );
+
+  // PARSER: Resolve Commands
+  return sanitizedText.replace(/\{\{(.*?)\}\}/g, function(match, content) {
+    const parts = content.split(":").map(p => p.trim());
+    const cmd = parts[0].toUpperCase();
+    const arg = parts[1] || "";
+
+    try {
+      switch (cmd) {
+        case "DATE":
+          return _formatDate(_parseDateToken(arg));
+        case "RANGE":
+          const endArg = parts[2] || "Today";
+          return `${_formatDate(_parseDateToken(arg))} - ${_formatDate(_parseDateToken(endArg))}`;
+        case "TIME":
+          const zone = arg.toUpperCase() === "BKK" ? "Asia/Bangkok" : DEFAULT_TIMEZONE;
+          const label = arg.toUpperCase() === "BKK" ? "ICT" : DEFAULT_TZ_LABEL;
+          return _getRoundedTime(zone, label);
+        case "MONTHNAME":
+          return _getMonthName(parseInt(arg) || 0);
+        case "RAMCO":
+          return _getRamcoCycle(arg.toUpperCase() === "PREVIOUS" ? -1 : 0);
+        case "GREETING":
+          return _getGreeting();
+        default:
+          return match;
+      }
+    } catch (e) {
+      return "TEMPLATE_ERROR";
+    }
+  });
+}
+
+// ==========================================
+// PRIVATE HELPERS
+// ==========================================
+
+function _findTabRecursive(tabs, name) {
+  for (const tab of tabs) {
+    if (tab.getTitle() === name) return tab;
+    const found = _findTabRecursive(tab.getChildTabs(), name);
+    if (found) return found;
+  }
+  return null;
+}
+
+function _parseDateToken(token) {
+  const d = new Date();
+  const lower = token.toLowerCase();
+  const offset = parseInt(lower.replace(/(today|monthstart|weekstart)/, "").trim(), 10) || 0;
+
+  if (lower.includes("monthstart")) {
+    d.setDate(1);
+    d.setMonth(d.getMonth() + offset);
+  } else if (lower.includes("weekstart")) {
+    const day = d.getDay(); // 0 is Sunday
+    d.setDate(d.getDate() - day + (offset * 7));
+  } else {
+    d.setDate(d.getDate() + offset);
+  }
+  return d;
+}
+
+function _getRamcoCycle(offset) {
+  const d = new Date();
+  let m = d.getDate() >= 16 ? d.getMonth() : d.getMonth() - 1;
+  m += offset;
+  const start = new Date(d.getFullYear(), m, 16);
+  const end = new Date(start.getFullYear(), start.getMonth() + 1, 15);
+  return `${_formatDate(start)} - ${_formatDate(end)}`;
+}
+
+function _formatDate(d) {
+  return Utilities.formatDate(d, Session.getScriptTimeZone(), "dd-MMM-yyyy");
+}
+
+function _getMonthName(offset) {
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + offset);
+  return Utilities.formatDate(d, Session.getScriptTimeZone(), "MMMM yyyy");
+}
+
+function _getRoundedTime(tz, label) {
+  const d = new Date();
+  d.setMinutes(Math.floor(d.getMinutes() / 10) * 10);
+  return Utilities.formatDate(d, tz, "h:mm a") + " " + label;
+}
+
+function _getGreeting() {
+  const hour = parseInt(Utilities.formatDate(new Date(), DEFAULT_TIMEZONE, "HH"));
+  if (hour < 12) return "Good Morning";
+  if (hour < 18) return "Good Afternoon";
+  return "Good Evening";
+}
+
+function _convertElementToHtml(element) {
+  const type = element.getType();
+  
+  if (type === DocumentApp.ElementType.PARAGRAPH) {
+    if (element.getText() === "") return "<br>";
+    return `<p style="margin: 0; padding: 0;">${_getFormattedText(element)}</p>`;
+  }
+  
+  if (type === DocumentApp.ElementType.LIST_ITEM) {
+    return `<li>${_getFormattedText(element)}</li>`;
+  }
+  
+  if (type === DocumentApp.ElementType.HORIZONTAL_RULE) {
+    return `<hr style="border: 0; border-top: 1px solid #cccccc; margin: 15px 0;">`;
+  }
+  
+  return "";
+}
+
+function _getFormattedText(element) {
+  const textObj = element.editAsText();
+  const str = textObj.getText();
+  let html = "";
+  let lastState = null;
+
+  const getTags = (cfg) => {
+    let open = "";
+    if (cfg.url) open += `<a href="${cfg.url}">`;
+    let style = "";
+    if (cfg.fg && cfg.fg !== "#000000") style += `color:${cfg.fg};`;
+    if (cfg.bg && cfg.bg !== "#ffffff") style += `background-color:${cfg.bg};`;
+    if (style) open += `<span style="${style}">`;
+    if (cfg.bold) open += "<b>";
+    return open;
+  };
+
+  const closeTags = (cfg) => {
+    let close = "";
+    if (cfg.bold) close += "</b>";
+    if ((cfg.fg && cfg.fg !== "#000000") || (cfg.bg && cfg.bg !== "#ffffff")) close += "</span>";
+    if (cfg.url) close += "</a>";
+    return close;
+  };
+
+  for (let i = 0; i < str.length; i++) {
+    const currentState = {
+      url: textObj.getLinkUrl(i),
+      fg: textObj.getForegroundColor(i),
+      bg: textObj.getBackgroundColor(i),
+      bold: textObj.isBold(i)
+    };
+
+    if (i === 0) {
+      html += getTags(currentState);
+    } else if (JSON.stringify(currentState) !== JSON.stringify(lastState)) {
+      html += closeTags(lastState) + getTags(currentState);
+    }
+    
+    html += str.charAt(i);
+    lastState = currentState;
+  }
+
+  if (str.length > 0) html += closeTags(lastState);
+  return html;
+}
