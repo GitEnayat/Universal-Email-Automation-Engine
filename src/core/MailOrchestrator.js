@@ -1,9 +1,7 @@
-/*
-MODULE: MailOrchestrator
---------------------------------
-The Engine that orchestrates fetching, parsing, and drafting.
-FINAL VERSION: Integrated with AppConfig Class
-*/
+/**
+ * @fileoverview Main orchestration logic for the Email Engine.
+ * Handles the "Pipeline": Config -> Template -> Data -> Recipients -> Gmail.
+ */
 
 /**
  * Orchestrates the report generation.

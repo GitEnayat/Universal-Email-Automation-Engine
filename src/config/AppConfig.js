@@ -1,10 +1,7 @@
-/*
-MODULE: AppConfig
----------------------------------------------------
-Central configuration layer.
-Handles default settings + environment overrides.
----------------------------------------------------
-*/
+/**
+ * @fileoverview Configuration management.
+ * Handles loading default settings and applying runtime overrides (e.g., from test runners).
+ */
 
 class AppConfig {
 

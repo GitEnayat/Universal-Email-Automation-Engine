@@ -280,7 +280,7 @@ This repository demonstrates the approach in a Google Workspace context.
 **Enayatullh**
 *Operations Engineer*
 
-I built this tool to solve a recurring friction point I observed in WFM (Workforce Management) teams: analysts spending time on manual email formatting. This project represents my approach to **Systems Thinking**—building reusable frameworks to solve categories of problems.
+I built this tool to solve a recurring friction point I observed in WFM (Workforce Management) teams: analysts spending time on manual email formatting. This project represents my approach to **Systems Thinking**—building reusable tooling to solve categories of problems.
 
 ---
 _License: MIT_

@@ -1,14 +1,7 @@
-/*
-MODULE: TemplateService
---------------------------------
-Loads templates from Google Docs and parses:
-- Subject / Body / To / CC
-- Dictionary engine
-- Date engine
-- HTML conversion
-- Table injection
---------------------------------
-*/
+/**
+ * @fileoverview Template parsing and processing.
+ * Responsible for fetching Google Docs, replacing tokens ({{KEY}}), and converting to Gmail-friendly HTML.
+ */
 
 
 // ==========================================
